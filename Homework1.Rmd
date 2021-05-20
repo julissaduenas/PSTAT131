@@ -1,0 +1,86 @@
+---
+title: "Homework 1"
+author: "Julissa Duenas and Brian Brotski"
+date: "1/15/2021"
+output: pdf_document
+---
+
+```{r}
+algae <- read_table2("algaeBloom.txt", col_names= c('season','size','speed','mxPH','mnO2','Cl','NO3','NH4',
+'oPO4','PO4','Chla','a1','a2','a3','a4','a5','a6','a7'), na="XXXXXXX")
+
+glimpse(algae)
+```
+
+1a)
+```{r}
+algae %>%
+  group_by(season) %>%
+  summarise(obs=n(),na.rm=TRUE)
+```
+There are 40 observations in Autumn, 53 is Spring, 45 in Summer and 62 in Winter
+
+1b)
+```{r}
+#is.na(algae)
+Chemicals <- algae%>%select(mxPH:Chla)
+Chemicals_mean <- Chemicals%>%summarise_all(mean,na.rm=TRUE)
+Chemicals_var <- Chemicals%>%summarise_all(var,na.rm=TRUE)
+print(Chemicals_mean)
+print(Chemicals_var)
+```
+**answer question**
+
+1c)
+```{r}
+Chemicals_med <- Chemicals%>%summarise_all(median,na.rm=TRUE)
+Chemicals_MAD <- Chemicals%>%summarise_all(mad,na.rm=TRUE)
+print(Chemicals_med)
+print(Chemicals_MAD)
+```
+**answer question**
+
+2a)
+```{r}
+mxPH_hist <- algae%>% ggplot(aes(x=mxPH))+geom_histogram(mapping=aes(y=..density..),binwidth = .1,na.rm = TRUE)+ggtitle('Histogram of mxPH')
+mxPH_hist
+```
+The distribution does not look skewed
+
+2b)
+```{r}
+mxPH_dens_rug <- mxPH_hist+geom_density(mapping = aes(x=mxPH,y=..density..),na.rm=TRUE,color='red')+geom_rug()
+mxPH_dens_rug
+```
+
+2c)
+```{r}
+algal_box <- ggplot(data = algae)+geom_boxplot(mapping = aes(x=size,y=a1),na.rm=TRUE)+ggtitle('A conditioned Boxplot of Algal a1')
+algal_box
+```
+
+2d)
+```{r}
+no3 <- ggplot(data = algae)+geom_boxplot(mapping = aes(x=size,y=NO3),na.rm=TRUE)
+nh4 <- ggplot(data = algae)+geom_boxplot(mapping = aes(x=size,y=NH4),na.rm=TRUE)
+no3
+nh4
+```
+
+2e)
+```{r}
+
+```
+
+4a)
+
+5a)
+```{r}
+algae.Test <- read_table2('algaeTest.txt', col_names=c('season','size','speed','mxPH','mnO2','Cl','NO3',
+'NH4','oPO4','PO4','Chla','a1'), na=c('XXXXXXX'))
+```
+
+```{r}
+
+```
+

@@ -1,0 +1,429 @@
+---
+title: "PSTAT131 Final"
+author: "Julissa Duenas"
+date: "3/18/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(tidyr)
+library(knitr)
+#install.packages('kableExtra')
+library(kableExtra)
+library(stats)
+library(dendextend)
+library(ISLR)
+library(tree)
+library(maptree)
+#install.packages('glmnet')
+library(glmnet)
+library(class)
+library(ROCR)
+library(randomForest)
+```
+
+##Background
+
+#1. What makes voter behavior prediction (and thus election forecasting) a hard problem?
+
+voter behavior prediction becomes a hard problem when strong supporters dont answer polls or surveys. This would sway the prediction in favor of a different candidate. Some people who answer polls may also be lying. They could be lying about who they will truly vote for, or lie about whether they are going to vote at all. Voters could also change their mind.
+
+#2. What was unique to Nate Silver's approach in 2012 that allowed him to achieve good predictions?
+
+Instead of looking at maximum probability, Nate Silver looked at a range of probabilities each day. He would then calculate the actual probability of support from the previous day and use his hierarchical model to see the probability that support has shifted. He did a lot of this using Bayes' Theorem. He used a hierarchical model because it would allow him to move information around
+
+#3. What went wrong in 2016? What do you think should be done to make future predictions better?
+
+In 2016, it was predicted that Hillary Clinton was going to win the election but untimately, Donald Trump won. Many Trump supporters were distrustful of polls and did not answer surveys. There should be a variety of polling methods, not just phone calls, to ensure that people trust the polls. Taking swing states into account is also very important as they can determine the outcome of an election.
+
+##Election Data
+
+```{r message=FALSE, r,echo=FALSE}
+## set the working directory as the file location
+setwd(getwd())
+## put the data folder and this handout file together.
+## read data and convert candidate from string to factor
+election.raw <- read_delim("data/election/election.csv", delim = ",") %>% mutate(candidate=as.factor(candidate))
+
+census_meta <- read_delim("data/census/metadata.csv", delim = ";", col_names = FALSE) 
+census <- read_delim("data/census/census.csv", delim = ",") 
+```
+
+#Question 4
+
+```{r,include=FALSE}
+dim(election.raw)
+election.raw <- filter(election.raw,fips!=2000)
+dim(election.raw)
+dim(na.omit(election.raw))
+```
+
+There are now 18345 observations for 5 variables. 6 observations were removed. This is because they were outliers, displaying a very low fips value which could skew our data. 
+
+##Data Wrangling
+```{r,include=FALSE}
+#Question 5
+election.clean <- filter(election.raw,fips!=state)
+dim(election.clean)
+```
+
+#Question 6
+
+```{r,include=FALSE}
+length(unique(election.clean$candidate))
+election.group <- election.clean%>%group_by(candidate)%>%summarise(votes=sum(votes))
+```
+```{r echo=FALSE}
+ggplot(data = election.group,aes(x=candidate,y=log(votes)))+geom_bar(stat='identity',fill='blue')+geom_text(aes(label=votes,hjust=1),color='white')+coord_flip()+ggtitle('Total vote count')+labs(x='Candidate',y='log of total count')
+```
+
+There are 32 candidates
+
+
+```{r,include=FALSE,echo=FALSE}
+#Question 7
+county_winner <- election.clean%>%group_by(fips)%>%mutate(total=sum(votes),pct=votes/total)%>%top_n(1)
+state_winner <- election.clean%>%group_by(state)%>%mutate(total=sum(votes),pct=votes/total)%>%top_n(1)
+```
+
+##Visualization
+
+```{r,include=FALSE,echo=FALSE}
+states <- map_data("state")
+
+ggplot(data = states) + 
+  geom_polygon(aes(x = long, y = lat, fill = region, group = group), color = "white") + 
+  coord_fixed(1.3) +
+  guides(fill=FALSE)  # color legend is unnecessary and takes too long
+```
+
+
+#Question 8
+
+```{r,include=FALSE}
+counties <- map_data('county')
+```
+```{r echo=FALSE}
+ggplot(data=counties)+geom_polygon(aes(x=long,y=lat,fill=region,group=group),color='white')+coord_fixed(1.3)+guides(fill=FALSE)
+```
+
+#Question 9
+
+```{r,include=FALSE}
+states['fips'] <- state.abb[match(states$region,tolower(state.name))]
+winning.state <- left_join(states,state_winner,by=c('fips'='state'))
+```
+```{r echo=FALSE}
+ggplot(data = winning.state)+geom_polygon(aes(x=long,y=lat,fill=candidate,group=group),color='white')+coord_fixed(1.3)
+```
+
+#Question 10
+
+```{r include=FALSE}
+county.fips <- maps::county.fips%>%separate(polyname,c('region','subregion'),',')
+counties <- left_join(counties,county.fips,by=c('subregion','region'))
+county_winner$fips <- as.integer(county_winner$fips)
+counties <- left_join(counties,county_winner,by=c('fips'))
+```
+```{r echo=FALSE}
+ggplot(data=counties)+geom_polygon(aes(x=long,y=lat,fill=candidate,group=group),color='white')+coord_fixed(1.3)
+```
+
+#Question 11
+
+```{r include=FALSE}
+census.visual <- na.omit(census)%>%group_by(State,County)%>%mutate(TotalPop=sum(TotalPop))%>%summarise_each(funs(mean),TotalPop:PrivateWork)
+top25 <- census.visual[order(-census.visual$TotalPop),][1:25,]
+```
+```{r echo=FALSE}
+ggplot(data=top25,aes(x=IncomePerCap,y=Poverty,size=Black,color=State))+geom_point(alpha=0.5)+scale_size(range=c(.1,10),name='Citizen')+theme(legend.position = 'bottom',legend.title=element_text(size=9))+ggtitle('25 counties with largest population')
+```
+
+#Question 12
+
+```{r echo=FALSE}
+census.del <- na.omit(census)%>% mutate(Men=Men/TotalPop*100,Employed=Employed/TotalPop*100,Citizen=Citizen/TotalPop*100,Minority=(Hispanic+Black+Native+Asian+Pacific))%>%select(-c(Hispanic,Black,Native,Asian,Pacific,Walk,PublicWork,Construction))
+census.subct <- census.del%>%group_by(State,County)%>%add_tally(TotalPop,name='CountyTotal')%>%mutate(Weight=TotalPop/CountyTotal)
+census.ct <- census.subct%>%summarize_at(vars(Men:CountyTotal),funs(weighted.mean(.,Weight)))
+kable(head(census.ct),caption='County census data')
+```
+
+##Dimensionality Reduction
+
+#Question 13
+
+```{r echo=FALSE}
+ct.pca <- prcomp(census.ct[,-c(1,2)],scale=TRUE)
+ct.pc <- as.data.frame(ct.pca$rotation[,1:2])
+subct.pca <- prcomp(census.subct[,-c(1,2)],scale=TRUE)
+subct.pc <- as.data.frame(subct.pca$rotation[,1:2])
+#largest abs for ct
+topct <- order(abs(ct.pc$PC1),decreasing = TRUE)[1:3]
+#largest abs for subct
+topsubct <- order(abs(subct.pc$PC1),decreasing = TRUE)[1:3]
+kable(ct.pc[topct,],caption = 'largest absolute values of PC1 for county')
+kable(subct.pc[topsubct,],caption='largest absolute values of PC1 for sub-county')
+```
+
+I chose to center and scale the features in order to normalize the data. Doing so would remove bias. The 3 features with the largest absolute value of PC1 for county are IncomePerCap, ChildPoverty, and Poverty. For sub-county they are IncomePerCap, Professional, and Poverty.
+For county, IncomePerCap is negative and ChildPoverty and Poverty are both positive for PC1. For sub-county, Poverty is negative and IncomePerCap and Professional are positive for PC1. This means that those with a positive value are positively correlated with PC1, meaning an increase in one increases the other, while those with a negative value signify a negative relationship with PC1
+
+#Question 14
+
+```{r echo=FALSE}
+pr.subct.var <- subct.pca$sdev^2
+pve.subct <- pr.subct.var/sum(pr.subct.var)
+min.subct.pc <- min(which(cumsum(pve.subct)>=0.9))
+#min.subct.pc #16
+par(mfrow=c(1,2))
+plot(pve.subct,xlab='Principle Component',ylab='PVE for Sub-County',type='b',ylim=c(0,0.5))
+plot(cumsum(pve.subct),xlab='Principle Component',ylab='Cummulative PVE for Sub-County',ylim=c(0,1),type='b')
+
+pr.ct.var <- ct.pca$sdev^2
+pve.ct <- pr.ct.var/sum(pr.ct.var)
+min.ct.pc <- min(which(cumsum(pve.ct)>=0.9))
+#min.ct.pc #14
+par(mfrow=c(1,2))
+plot(pve.ct,xlab='Principle Component',ylab='PVE for County',type='b',ylim=c(0,0.5))
+plot(cumsum(pve.ct),xlab='Principle Component',ylab='Cummulative PVE for County',ylim=c(0,1),type='b')
+```
+
+The minimum number of PCs to capture 90% of the variance is 14 for County and 16 for Sub-County
+
+##Clustering
+
+#Question 15
+
+```{r echo=FALSE}
+census.ct.scale <- as.data.frame(scale(census.ct[,-c(1,2)],center=TRUE,scale=TRUE))
+census.ct.scale.dist <- dist(census.ct.scale,method='euclidean')
+set.seed(1)
+ct.hc <- hclust(census.ct.scale.dist,method = 'complete')
+census.ct.dend <- as.dendrogram(ct.hc)
+census.ct.dend=color_branches(census.ct.dend,k=10)
+census.ct.dend=color_labels(census.ct.dend,k=10)
+census.ct.dend=set(census.ct.dend,'labels_cex',0.5)
+plot(census.ct.dend,horiz=TRUE,main='10 clusters of census.ct')
+census.ct['Cluster'] <- cutree(ct.hc,10)
+#census.ct%>%filter(County=='San Mateo') #in cluster 5
+clusterct5 <- census.ct%>%filter(Cluster==5)
+```
+```{r echo=FALSE}
+ct.pc.scale <- as.data.frame(scale(ct.pca$x[,1:5]),center=TRUE,scale=TRUE)
+ct.pc.dist <- dist(ct.pc.scale,method='euclidean')
+set.seed(1)
+ct.pc.hc <- hclust(ct.pc.dist,method='complete')
+ct.pc.dend <- as.dendrogram(ct.pc.hc)
+ct.pc.dend=color_branches(ct.pc.dend,k=10)
+ct.pc.dend=color_labels(ct.pc.dend,k=10)
+ct.pc.dend=set(ct.pc.dend,'labels_cex',0.5)
+plot(ct.pc.dend,horiz=TRUE,main='10 clusters of ct.pc')
+census.ct['Cluster_PC'] <- cutree(ct.pc.hc,10)
+#census.ct%>%filter(County=='San Mateo') #cluster 7
+cluster7.pc <- census.ct%>%filter(Cluster_PC==7)
+```
+```{r echo=FALSE}
+cluster5.county <- clusterct5$County
+clus5.arr <- c()
+for (i in c(1:length(cluster5.county))) {
+  clus5.arr[i] <- cluster5.county[i]
+}
+county.sub <- counties%>%mutate(cluster5=counties$subregion%in%tolower(clus5.arr))
+
+cluster7.county <- cluster7.pc$County
+clus7.arr <- c()
+for (i in c(1:length(cluster7.county))) {
+  clus7.arr[i] <- cluster7.county[i]
+}
+county.sub <- counties%>%mutate(cluster5=counties$subregion%in%tolower(clus5.arr),cluster7.pc=counties$subregion%in%tolower(clus7.arr))
+
+
+ggplot(data=county.sub)+geom_polygon(aes(x=long,y=lat,fill=cluster5,group=group),color='black')+coord_fixed(1.3)+ggtitle('Counties in Cluster 5 from original features')
+
+ggplot(data=county.sub)+geom_polygon(aes(x=long,y=lat,fill=cluster7.pc,group=group),color='black')+coord_fixed(1.3)+ggtitle('Counties in Cluster 7 from first 5 PC')
+```
+
+##Classification
+
+```{r include=FALSE}
+tmpwinner <- county_winner %>% ungroup %>%
+  mutate(state = state.name[match(state, state.abb)]) %>%               ## state abbreviations
+  mutate_at(vars(state, county), tolower) %>%                           ## to all lowercase
+  mutate(county = gsub(" county| columbia| city| parish", "", county))  ## remove suffixes
+tmpcensus <- census.ct %>% mutate_at(vars(State, County), tolower)
+
+election.cl <- tmpwinner %>%
+  left_join(tmpcensus, by = c("state"="State", "county"="County")) %>% 
+  na.omit
+## save meta information
+election.meta <- election.cl %>% select(c(county, fips, state, votes, pct, total))
+## save predictors and class labels
+election.cl = election.cl %>% select(-c(county, fips, state, votes, pct, total))
+```
+```{r include=FALSE}
+set.seed(10) 
+n <- nrow(election.cl)
+in.trn <- sample.int(n, 0.8*n) 
+trn.cl <- election.cl[ in.trn,]
+tst.cl <- election.cl[-in.trn,]
+set.seed(20) 
+nfold <- 10
+folds <- sample(cut(1:nrow(trn.cl), breaks=nfold, labels=FALSE))
+calc_error_rate = function(predicted.value, true.value){
+  return(mean(true.value!=predicted.value))
+}
+records = matrix(NA, nrow=3, ncol=2)
+colnames(records) = c("train.error","test.error")
+rownames(records) = c("tree","logistic","lasso")
+```
+
+#Question 16
+
+```{r echo=FALSE}
+election.tree <- tree(candidate~.,data=trn.cl)
+draw.tree(election.tree,nodeinfo=TRUE,cex=0.45)
+title('Election tree before pruning')
+cv.election.tree <- cv.tree(election.tree,FUN=prune.misclass)
+best.cv <- cv.election.tree$size[max(which(cv.election.tree$dev==min(cv.election.tree$dev)))]
+#best.cv #8
+pruned.election.tree <- prune.misclass(election.tree,best=best.cv)
+draw.tree(pruned.election.tree,nodeinfo = TRUE,cex=0.55)
+title('Pruned Election Tree')
+```
+
+If the transit rate is <1.05, and if the percentage of white people is greater than 48.38%, then it is 92.7% likely that Trump will win. If the percentage of white people is <48.38, and if the employment rate is <10.45%, it is 60.6% likely that Clinton will Win.
+If the transit rate is <1.05%, and if the county total is >243088, it is 50.9% likely that Clinton will win
+
+```{r echo=FALSE}
+set.seed(1)
+unprune.test.pred <- predict(election.tree,tst.cl,type='class')
+unprune.train.pred <- predict(election.tree,trn.cl,type='class')
+unprune.test.error <- calc_error_rate(unprune.test.pred,tst.cl$candidate)
+unprune.train.error <- calc_error_rate(unprune.train.pred,trn.cl$candidate)
+
+prune.test.pred <- predict(pruned.election.tree,tst.cl,type='class')
+prune.train.pred <- predict(pruned.election.tree,trn.cl,type='class')
+prune.test.error <- calc_error_rate(prune.test.pred,tst.cl$candidate)
+prune.train.error <- calc_error_rate(prune.train.pred,trn.cl$candidate)
+records[1,1] <- prune.train.error
+records[1,2] <- prune.test.error
+```
+
+#Question 17
+
+```{r include=FALSE}
+trn.clN <- trn.cl%>%select(-candidate)
+trn.clY <- trn.cl$candidate
+tst.clN <- tst.cl%>%select(-candidate)
+tst.clY <- tst.cl$candidate
+#train
+glm.election <- glm(candidate~.,data=trn.cl,family='binomial')
+fit.train.election <- predict(glm.election,trn.clN,type='response')
+glm.pred.train <- rep('Donald Trump',length(trn.clY))
+glm.pred.train[fit.train.election>0.5]='Hillary Clinton'
+#test
+fit.test.election <- predict(glm.election,tst.clN,type='response')
+glm.pred.test <- rep('Donald Trump',length(tst.clY))
+glm.pred.test[fit.test.election>0.5]='Hillary Clinton'
+records[2,1] <- calc_error_rate(glm.pred.train,trn.clY)
+records[2,2] <- calc_error_rate(glm.pred.test,tst.clY)
+#summary(glm.election)
+```
+The significant variables are White, Citizen, Professional, Service, Production, Drive, Carpool, Employed, PrivateWork, and Unemployment having a significane level between 0 and 0.001. These are impotant at a 99% significance level. This is not consistent with the decision tree. CountyTotal is not considered significant here and White is only significant at a 95% confidence level.
+
+#Question 18
+
+```{r include=FALSE}
+x <- model.matrix(candidate~.,trn.cl)[,-1]
+y <- ifelse(trn.cl$candidate=='Hillary Clinton',1,0)
+cv.lasso <- cv.glmnet(x=x,y=y,family='binomial',alpha=1,lambda=c(1,5,10,50)*1e-4)
+cv.lasso
+cv.lasso$lambda.min
+log.lasso <- glmnet(x=x,y=y,alpha = 1,family = 'binomial',lambda = cv.lasso$lambda.min)
+coef(log.lasso)
+lasso.train.prob <- predict(log.lasso,x,type='response')
+pred.train.class <- ifelse(lasso.train.prob>0.5,'Hillary Clinton','Donald Trump')
+x2 <- model.matrix(candidate~.,tst.cl)[,-1]
+lasso.test.prob <- predict(log.lasso,x2,type = 'response')
+pred.test.class <- ifelse(lasso.test.prob>0.5,'Hillary Clinton','Donald Trump')
+lasso.test.error <- calc_error_rate(pred.test.class,tst.cl$candidate)
+lasso.train.error <- calc_error_rate(pred.train.class,trn.cl$candidate)
+records[3,2] <- lasso.test.error
+records[3,1] <- lasso.train.error
+records
+```
+
+optimal $\lambda$ value is 0.001. There are 23 non-zero coefficients for optimal $\lambda$ which are Men, White, Citizen, IncomeErr, IncomePerCap,Poverty,Professional,Service,Office,Production,Drive,Carpool,Transit,OtherTransp,WorkAtHome,MeanCommute,Employed,PrivateWork,FamilyWork,Unemployment,CountyTotal,Cluster,Cluster_PC.
+Lasso has a higher training error of 0.0656
+
+#Question 19
+
+```{r echo=FALSE}
+pruned.pred.tree <- predict(pruned.election.tree,tst.clN,type = 'class')
+pred.tree <- prediction(as.numeric(pruned.pred.tree),as.numeric(tst.clY))
+pred.log <- prediction(as.numeric(fit.test.election),as.numeric(tst.clY))
+pred.lasso <- prediction(lasso.test.prob,as.numeric(tst.clY))
+tree.perf <- performance(pred.tree,measure='tpr',x.measure = 'fpr')
+log.perf <- performance(pred.log,measure = 'tpr',x.measure='fpr')
+lasso.perf <- performance(pred.lasso,measure='tpr',x.measure = 'fpr')
+plot(tree.perf,col=3,lwd=3,main='ROC Curves')
+plot(log.perf,col=1,lty=4,lwd=3,main='ROC Curves',add=TRUE)
+plot(lasso.perf,col=4,lty=3,lwd=3,main='ROC Curves',add=TRUE)
+legend('bottomright',legend=c('Decision Tree','Logistic Regression','Lasso'),col=c('green','black','blue'),lty=1:2,cex=0.7)
+abline(0,1)
+```
+
+here, it can be seen that the decision tree method does not have the best accuracy. This may be because decision trees have high variance and can overfit. We can conclude that it is likely that the data cannot easily be split into rectangles. Logistic Regression and Lasso regression have a very similar accuracy. Logistic regression is best when classifying between two values, here being Hillary Clinton or Donald Trump. Lasso regression is best for redundant information. Both of these methods have a lower variance compared to decision trees.
+
+#Question 20
+
+In this project, I found that some variable that may be important in an election depend on County total, amount of white people, and unemployment from the decision tree model. The logistic model showed that other factors are important like citizen, production, drive, etc. Logistic regression was seen as having the smallest error but it is possible to run into the problem of perfect separation as explained by question 18. To fix this, we can use the lasso regression witch we can see in the ROC curves, that it has a similar accuracy to logistic regression
+
+Exploring Additional Classification Methods
+
+KNN
+
+```{r include=FALSE}
+allK=1:50
+set.seed(50)
+val.error=NULL
+for (i in allK) {
+  pred.Y.knn=knn.cv(train=trn.clN,cl=trn.clY,k=i)
+  val.error=c(val.error,mean(pred.Y.knn!=trn.clY))
+}
+numneighbor <- max(allK[val.error==min(val.error)])
+#numneighbor #22
+knn.test.pred <- knn(train = trn.clN,test=tst.clN,cl=trn.clY,k=numneighbor)
+knn.train.pred <- knn(train = trn.clN,test=trn.clN,cl=trn.clY,k=numneighbor)
+knn.test.error <- calc_error_rate(knn.test.pred,tst.clY)
+knn.train.error <- calc_error_rate(knn.train.pred,trn.clY)
+#knn.test.error #0.1284553
+#knn.train.error #0.1131922
+```
+Using 22 k values, I calculated the error rate. the test error rate comes to 0.128 and the training error comes to 0.113. this is very much a larger error than the other methods explored. This may be because our data is more linear and KNN is subject to overfit.
+
+Random Forest
+
+```{r include=FALSE}
+new.trn.cl <- trn.cl%>%mutate(candidate=factor(candidate))
+set.seed(1)
+bag.election=randomForest(candidate~.,data=new.trn.cl,mtry=10,importance=TRUE)
+new.tst.cl <- tst.cl%>%mutate(candidate=factor(candidate))
+yhat.bag <- predict(bag.election,newdata=new.tst.cl)
+bag.error <- calc_error_rate(yhat.bag,new.tst.cl$candidate)
+#bag.error #0.05528455
+```
+
+With the randomForest model, there is an error rate of 0.055, making it the best model compared to the other models explored in this project. The randomForest model can be used to tell about the misclassification rate. This would be useful in determining swing states
+
+
+
+
+
+

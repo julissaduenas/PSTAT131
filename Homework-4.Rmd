@@ -1,0 +1,280 @@
+---
+title: "Homework 4"
+author: "Julissa Duenas"
+date: "3/12/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tree)
+#install.packages('randomForest')
+library(randomForest)
+#install.packages('gbm')
+library(gbm)
+library(ROCR)
+library(e1071)
+#install.packages('imager',dependencies=TRUE)
+library(imager)
+```
+Question 1:
+a)
+$(1-\frac{1}{n})^n$
+
+b)
+$(1-\frac{1}{1000})^{1000}\approx0.3677$
+
+c)
+```{r}
+use_samp <- sample(seq(1,1000),replace=TRUE)
+num.unique <- length(unique(use_samp))
+num.missing <- 1000-num.unique
+num.missing/1000
+```
+
+d)
+```{r}
+curry <- c(rep(1,62),rep(0,64))
+curry.mean <- c()
+for (i in 1:1000) {
+  curry.sample <- sample(curry,replace = TRUE)
+  curry.mean[i] <- mean(curry.sample)
+}
+hist(curry.mean)
+```
+```{r}
+low <- quantile(curry.mean,0.025)
+upper <- quantile(curry.mean,0.975)
+c(low,upper)
+```
+11/19 is near the beginning or the season. According to the phenomenon, it is possible that as the season continues, Curry's percentage will drop. There is little probability that it will stay at such a high rate.
+
+Question 2
+```{r}
+load("faces_array.RData")
+face_mat <- sapply(1:1000, function(i) as.numeric(faces_array[, , i])) %>% t
+plot_face <- function(image_vector) {
+plot(as.cimg(t(matrix(image_vector, ncol=100))), axes=FALSE, asp=1)
+}
+```
+
+a)
+```{r}
+avg.face <- colMeans(face_mat)
+plot_face(avg.face)
+```
+
+b)
+```{r}
+pr.face <- prcomp(face_mat,center=TRUE, scale=FALSE)
+```
+```{r}
+pr.face.var <- pr.face$sdev^2
+pve.face <- pr.face.var/sum(pr.face.var)
+plot(pve.face,xlab="Principal Component",
+ylab="Proportion of Variance Explained ", ylim=c(0,1),type='b')
+plot(cumsum(pve.face), xlab="Principal Component ",
+ylab=" Cumulative Proportion of Variance Explained ", ylim=c(0,1), type='b')
+pve.face[1]+pve.face[2]+pve.face[3]+pve.face[4]+pve.face[5]
+```
+at least 5 PCs
+
+c)
+```{r}
+par(mar=c(1,1,1,1))
+par(mfrow=c(4,4))
+for (i in 1:16) {
+  plot_face(pr.face$rotation[,i])
+}
+```
+
+d)
+```{r}
+low.pc1 <- order(pr.face$x[,1])[1:5]
+high.pc1 <- order(pr.face$x[,1],decreasing = TRUE)[1:5]
+par(mfrow=c(1,5))
+for (i in high.pc1) {
+  plot_face(face_mat[i,])
+}
+for (i in low.pc1) {
+  plot_face(face_mat[i,])
+}
+```
+
+It seems as if the aspect is lighting. The higher PC1 values have a light or white background while the lower values have a dark or blackened background
+
+e)
+```{r}
+low.pc5 <- order(pr.face$x[,5])[1:5]
+high.pc5 <- order(pr.face$x[,5],decreasing = TRUE)[1:5]
+par(mfrow=c(1,5))
+for (i in high.pc5) {
+  plot_face(face_mat[i,])
+}
+for (i in low.pc5) {
+  plot_face(face_mat[i,])
+}
+```
+It seems that the component here is hair length. Those with the higher pc5 value have longer hair surrounding the face and those with the lower values have less/short hair. PC5 would be better because hair is a good indentifier of a person and background darkness is not.
+
+Question 3
+a)
+```{r}
+nonlinear <- read_csv('nonlinear.csv')
+ggplot(nonlinear,aes(x=X1,y=X2,color=Y))+geom_point()
+```
+
+b)
+```{r}
+# grid of points over sample space
+gr <- expand.grid(X1=seq(-5, 5, by=0.1), # sample points in X1
+                  X2=seq(-5, 5, by=0.1)) # sample points in X2
+nonlinear.glm <- glm(Y~X1+X2,data = nonlinear,family = binomial)
+pred.gr <- predict(nonlinear.glm,gr,type='response')
+new.pred.gr <- c()
+for (i in c(1:range(length(pred.gr)))) {
+  if (pred.gr[i]>0.5){
+    new.pred.gr[i] <- 'High'
+  }
+  else{
+    new.pred.gr[i] <- 'Low'
+  }
+}
+nonlinear.raster <- ggplot(gr,aes(X1,X2),alpha=0.5)+geom_raster(aes(fill=new.pred.gr))+geom_point(data=nonlinear,aes(col=Y,size=0.00015))+geom_point(data=nonlinear,color='blue')
+nonlinear.raster
+```
+
+c)
+```{r}
+nonlinear.poly <- glm(Y~poly(X1,2)*poly(X2,2),data=nonlinear,family=binomial)
+summary(nonlinear.poly)
+pred.poly <- predict(nonlinear.poly,gr,type='response')
+new.poly <- c()
+for (i in c(1:range(length(pred.poly)))) {
+  if(pred.poly[i]>0.5){
+    new.poly[i] <- 'High'
+  }
+  else{
+    new.poly[i] <- 'Low'
+  }
+}
+poly.raster <- ggplot(gr,aes(X1,X2),alpha=0.5)+geom_raster(aes(fill=new.poly))+geom_point(data=nonlinear,aes(col=Y,size=0.00015))+geom_point(data=nonlinear,color='green')
+poly.raster
+```
+
+d)
+```{r}
+poly5 <- glm(Y~poly(X1,5)+poly(X2,5),data=nonlinear,family=binomial)
+summary(poly5)
+pred.poly5 <- predict(poly5,gr,type='response')
+new.poly5 <- c()
+for (i in c(1:range(length(pred.poly5)))) {
+  if(pred.poly5[i]>0.5){
+    new.poly5[i] <- 'High'
+  }
+  else{
+    new.poly5[i] <- 'Low'
+  }
+}
+poly5.raster <- ggplot(gr,aes(X1,X2),alpha=0.5)+geom_raster(aes(fill=new.poly5))+geom_point(data=nonlinear,aes(col=Y,size=0.00015))+geom_point(data=nonlinear,color='darkgreen')
+poly5.raster
+```
+The region depicting a low classification is overfitting. A large p results in high variance and low bias
+
+e) 
+The magnitudes in the polynomial models are higher than the ones in the linear model. A larger p constitutes a higher variance and lower bias, we can see this in the polynomial models where in the 5th degree polynomial, there is overfitting.
+
+
+Question 4:
+```{r}
+#install.packages('ISLR')
+library(ISLR)
+caravan.train <- Caravan[1:1000,]
+caravan.test <- Caravan[1001:5822,]
+```
+
+b)
+```{r}
+caravan.boost <- gbm(ifelse(Purchase=='Yes',1,0)~.,data=caravan.train,distribution='bernoulli',n.trees=500,interaction.depth=4)
+summary(caravan.boost)
+```
+The most important are PPERSAUT, MGODGE, MOSTYPE, MAUT2, MKOOPKLA, MBERHOOG, MSKC, MGODPR, MAUT1, PBRAND
+
+c)
+```{r}
+bag.caravan <- randomForest(Purchase~.,data=caravan.train,mtry=10,importance=TRUE)
+print(bag.caravan)
+importance(bag.caravan)
+varImpPlot(bag.caravan,n.var=7)
+```
+The OOB estimate error is 6.2%. 10 variables were subsampled, 500 trees used to fit the data. No the order of importance is not similar
+
+d)
+```{r}
+caravan.test.boost <- predict(caravan.boost,newdata = caravan.test,type='response')
+new.test.boost <- c()
+for (i in c(1:4822)) {
+  if (caravan.test.boost[i]>0.2){
+    new.test.boost[i] <- 'Yes'
+  }
+  else{
+    new.test.boost[i] <- 'No'
+  }
+}
+error <- table(pred=new.test.boost,truth=caravan.test$Purchase)
+error
+test.error <- 1-sum(diag(error))/sum(error)
+test.error
+caravan.random.forest.test <- predict(bag.caravan,newdata=caravan.test,type='prob')
+yes <- caravan.random.forest.test[,2]
+new.rf <- c()
+for (i in c(1:4822)) {
+  if (yes[i]>0.2){
+    new.rf[i] <- 'Yes'
+  }
+  else{
+    new.rf[i] <- 'No'
+  }
+}
+rf.error <- table(pred=new.rf,truth=caravan.test$Purchase)
+rf.error
+test.rf.error <- 1-sum(diag(rf.error))/sum(rf.error)
+test.rf.error
+```
+46/309 $\approx0.149$ is the fraction of people who actually make a purchase out of those predicted to make a purchase
+
+
+Question 5
+```{r}
+drug_use <- read_csv('drug.csv',
+col_names = c('ID','Age','Gender','Education','Country','Ethnicity',
+'Nscore','Escore','Oscore','Ascore','Cscore','Impulsive',
+'SS','Alcohol','Amphet','Amyl','Benzos','Caff','Cannabis',
+'Choc','Coke','Crack','Ecstasy','Heroin','Ketamine','Legalh','LSD',
+'Meth', 'Mushrooms', 'Nicotine', 'Semer','VSA'))
+```
+
+a)
+```{r}
+drug_use <- drug_use%>%mutate(recent_cannabis_use=factor(ifelse(Cannabis>='CL3','Yes','No'),levels=c('No','Yes')))
+drug_use_sub <- drug_use%>%select(Age:SS,recent_cannabis_use)
+drug.samp <- sample(1:nrow(drug_use_sub),1500)
+drug.train <- drug_use_sub[drug.samp,]
+drug.test <- drug_use_sub[-drug.samp,]
+drug.svm <- svm(recent_cannabis_use~.,data=drug.train,kernal='radial',cost=1)
+drug.pred <- predict(drug.svm,drug.test)
+table(predict=drug.pred,truth=drug.test$recent_cannabis_use)
+
+```
+
+b)
+```{r}
+drug.tune <- tune(svm,recent_cannabis_use~.,data=drug.train,kernel='radial',ranges = list(c(0.001,0.01,0.1,1,10,100)))
+summary(drug.tune)
+bestmodel <- drug.tune$best.model
+tune.pred <- predict(bestmodel,drug.test)
+table(predict=tune.pred,truth=drug.test$recent_cannabis_use)
+```
+
